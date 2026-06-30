@@ -20,16 +20,24 @@ public final class StructurePlacementUtil {
           Mirror mirror,
           Random random
   ) {
-    structure.place(
-            anchor,
-            false,
-            rotation,
-            mirror,
-            -1,
-            1.0f,
-            random,
-            List.of(StructureAirFilter.create(structure, anchor, rotation, mirror)),
-            List.of()
-    );
+    try {
+      structure.place(
+              anchor,
+              false,
+              rotation,
+              mirror,
+              -1,
+              1.0f,
+              random,
+              List.of(StructureAirFilter.create(structure, anchor, rotation, mirror)),
+              List.of()
+      );
+    } catch (IllegalArgumentException ex) {
+      if (ex.getMessage() != null && ex.getMessage().contains("not in the region")) {
+        structure.place(anchor, false, rotation, mirror, -1, 1.0f, random, List.of(), List.of());
+        return;
+      }
+      throw ex;
+    }
   }
 }

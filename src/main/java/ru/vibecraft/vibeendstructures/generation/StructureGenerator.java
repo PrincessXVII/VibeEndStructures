@@ -125,34 +125,26 @@ public final class StructureGenerator {
             return GenerationResult.SKIPPED;
         }
 
-        Random random = new Random(seed ^ (chunkX * 31L + chunkZ));
-        StructureFootprint preview = placer.previewFootprint(chosen, random);
-
-        Block surface;
-        if ("mega_ship".equals(chosen.category())) {
-            surface = ShipSpawnFinder.findSpawn(world, chunkX, chunkZ, random).orElse(null);
-        } else {
-            int minY = Math.max(chosen.minY(), plugin.getPluginConfig().getMinY());
-            surface = EndSurfaceFinder.findSurface(world, chunkX, chunkZ, minY, random).orElse(null);
-        }
-        if (surface == null) {
+        world.getChunkAt(chunkX, chunkZ);
+        Random random = new Random(seed ^ (chunkX * 31L + chunkZ) ^ chosen.salt());
+        Location anchor = PlacementAnchorResolver.resolve(world, chunkX, chunkZ, chosen, random).orElse(null);
+        if (anchor == null) {
             if (plugin.getPluginConfig().isDebug()) {
                 plugin.getLogger().info("No placement spot for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
             }
             return GenerationResult.SKIPPED;
         }
-
-        int anchorX = surface.getX();
-        int anchorZ = surface.getZ();
-        int anchorY = chosen.placementType() == PlacementType.AIR
-                ? chosen.startHeight().resolveAirY(random)
-                : chosen.startHeight().resolveGroundY(surface.getY(), random);
-
-        Location anchor = new Location(world, anchorX, anchorY, anchorZ);
-
-        if (!occupancy.canPlace(world, anchorX, anchorY, anchorZ, preview, plugin.getPluginConfig().getStructureMinDistance())) {
+        StructureFootprint preview = placer.previewFootprint(chosen, random);
+        if (!occupancy.canPlace(
+                world,
+                anchor.getBlockX(),
+                anchor.getBlockY(),
+                anchor.getBlockZ(),
+                preview,
+                plugin.getPluginConfig().getStructureMinDistance()
+        )) {
             if (plugin.getPluginConfig().isDebug()) {
-                plugin.getLogger().info("Skipped " + chosen.id() + " at " + anchorX + "," + anchorY + "," + anchorZ + " — overlaps another structure");
+                plugin.getLogger().info("Skipped " + chosen.id() + " at " + anchor.getBlockX() + "," + anchor.getBlockY() + "," + anchor.getBlockZ() + " — overlaps another structure");
             }
             return GenerationResult.SKIPPED;
         }

@@ -278,7 +278,11 @@ public final class StructureFinalizeService {
             );
 
             if ("minecraft:shulker".equals(spawn.type())) {
-                world.spawn(loc, Shulker.class, shulker -> {
+                Location grounded = adjustShulkerSpawn(world, loc);
+                if (grounded == null) {
+                    continue;
+                }
+                world.spawn(grounded, Shulker.class, shulker -> {
                     shulker.setAI(true);
                     shulker.setPersistent(true);
                 });
@@ -312,6 +316,23 @@ public final class StructureFinalizeService {
 
     private static boolean isLootContainerMaterial(Material type) {
         return type == Material.CHEST || type == Material.BARREL || type == Material.TRAPPED_CHEST;
+    }
+
+    private static Location adjustShulkerSpawn(World world, Location original) {
+        int x = original.getBlockX();
+        int z = original.getBlockZ();
+        int y = original.getBlockY();
+
+        if (!world.getBlockAt(x, y - 1, z).getType().isAir()) {
+            return original;
+        }
+        int minY = world.getMinHeight();
+        for (int dy = 1; dy <= 8 && y - dy > minY; dy++) {
+            if (!world.getBlockAt(x, y - dy - 1, z).getType().isAir()) {
+                return new Location(world, x + 0.5, y - dy, z + 0.5, original.getYaw(), original.getPitch());
+            }
+        }
+        return null;
     }
 
     private LootTable resolveLootTable(String lootTableId) {
