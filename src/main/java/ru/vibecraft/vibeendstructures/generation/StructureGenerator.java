@@ -1,9 +1,9 @@
 package ru.vibecraft.vibeendstructures.generation;
 
 import org.bukkit.Chunk;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.block.structure.Mirror;
 import org.bukkit.block.structure.StructureRotation;
 import org.bukkit.persistence.PersistentDataType;
@@ -41,60 +41,76 @@ public final class StructureGenerator {
     }
 
     public void tryGenerate(Chunk chunk) {
-        if (!plugin.getPluginConfig().isEnabled()) {
-            return;
-        }
-
-        World world = chunk.getWorld();
-        if (!plugin.getPluginConfig().isWorldEnabled(world.getName())) {
-            return;
-        }
-        if (world.getEnvironment() != World.Environment.THE_END) {
+        if (!isWorldEligible(chunk.getWorld())) {
             return;
         }
 
         if (chunk.getPersistentDataContainer().has(processedKey, PersistentDataType.BYTE)) {
             return;
         }
-        chunk.getPersistentDataContainer().set(processedKey, PersistentDataType.BYTE, (byte) 1);
 
         int chunkX = chunk.getX();
         int chunkZ = chunk.getZ();
-        long seed = world.getSeed();
+        long seed = chunk.getWorld().getSeed();
+        List<StructureDefinition> enabled = enabledStructures();
 
-        generateAt(world, chunkX, chunkZ, seed);
+        int placedInChunk = 0;
+        int maxPerChunk = plugin.getPluginConfig().getMaxStructuresPerChunk();
+
+        for (StructureDefinition definition : enabled) {
+            if (placedInChunk >= maxPerChunk) {
+                break;
+            }
+            GenerationResult result = attemptPlacement(chunk.getWorld(), chunkX, chunkZ, seed, definition, true);
+            if (result == GenerationResult.PLACED) {
+                placedInChunk++;
+            }
+        }
+
+        chunk.getPersistentDataContainer().set(processedKey, PersistentDataType.BYTE, (byte) 1);
     }
 
-    private void generateAt(World world, int chunkX, int chunkZ, long seed) {
-        if (!plugin.getPluginConfig().isEnabled()) {
-            return;
+    public GenerationResult attemptPlacement(
+            World world,
+            int chunkX,
+            int chunkZ,
+            long seed,
+            String structureId,
+            boolean asyncFinalize
+    ) {
+        StructureDefinition definition = registry.getDefinition(structureId).orElse(null);
+        if (definition == null || !definition.enabled()) {
+            return GenerationResult.NOT_APPLICABLE;
         }
-        if (!plugin.getPluginConfig().isWorldEnabled(world.getName())) {
-            return;
-        }
-        if (world.getEnvironment() != World.Environment.THE_END) {
-            return;
+        return attemptPlacement(world, chunkX, chunkZ, seed, definition, asyncFinalize);
+    }
+
+    public GenerationResult attemptPlacement(
+            World world,
+            int chunkX,
+            int chunkZ,
+            long seed,
+            StructureDefinition chosen,
+            boolean asyncFinalize
+    ) {
+        if (!isWorldEligible(world)) {
+            return GenerationResult.NOT_APPLICABLE;
         }
 
-        int spacing = plugin.getPluginConfig().getGridSpacing();
-        int separation = plugin.getPluginConfig().getGridSeparation();
-        int salt = plugin.getPluginConfig().getGridSalt();
-
-        if (!PlacementEngine.isSpawnChunk(seed, chunkX, chunkZ, spacing, separation, salt)) {
-            return;
+        if (!PlacementEngine.isSpawnChunk(
+                seed,
+                chunkX,
+                chunkZ,
+                chosen.spacing(),
+                chosen.separation(),
+                chosen.salt()
+        )) {
+            return GenerationResult.NOT_APPLICABLE;
         }
 
-        List<StructureDefinition> enabled = PlacementEngine.filterEnabled(registry.getDefinitions(), definition ->
-                plugin.getPluginConfig().isCategoryEnabled(definition.category())
-                        && plugin.getPluginConfig().isStructureEnabled(definition.id())
-        );
-        if (enabled.isEmpty()) {
-            return;
-        }
-
-        StructureDefinition chosen = PlacementEngine.pickStructure(enabled, seed, chunkX, chunkZ, salt);
-        if (chosen == null) {
-            return;
+        if (!plugin.getPluginConfig().isCategoryEnabled(chosen.category())
+                || !plugin.getPluginConfig().isStructureEnabled(chosen.id())) {
+            return GenerationResult.NOT_APPLICABLE;
         }
 
         int minDist = chosen.minDistanceFromOrigin() != null
@@ -104,7 +120,7 @@ public final class StructureGenerator {
         int blockX = chunkX * 16 + 8;
         int blockZ = chunkZ * 16 + 8;
         if (Math.hypot(blockX, blockZ) < minDist) {
-            return;
+            return GenerationResult.SKIPPED;
         }
 
         Random random = new Random(seed ^ (chunkX * 31L + chunkZ));
@@ -139,12 +155,37 @@ public final class StructureGenerator {
         StructureRotation rotation = ShipPlacement.rotationFor(chosen, random);
         Mirror mirror = ShipPlacement.mirrorFor(chosen, random);
 
-        placer.placeForGeneration(world, surface, chosen, piece, rotation, mirror, random, result ->
-                onPlacementComplete(world, chosen, result, chunkX, chunkZ)
+        if (asyncFinalize) {
+            placer.placeForGeneration(
+                    world,
+                    anchor.getBlock(),
+                    chosen,
+                    piece,
+                    rotation,
+                    mirror,
+                    random,
+                    result -> onPlacementComplete(world, chosen, result)
+            );
+            return GenerationResult.PLACED;
+        }
+
+        PlacementResult result = placer.placeAt(anchor, chosen, rotation, mirror);
+        if (!result.success()) {
+            return GenerationResult.SKIPPED;
+        }
+        onPlacementComplete(world, chosen, result);
+        return GenerationResult.PLACED;
+    }
+
+    public List<StructureDefinition> enabledStructures() {
+        return PlacementEngine.filterEnabled(registry.getDefinitions(), definition ->
+                definition.enabled()
+                        && plugin.getPluginConfig().isCategoryEnabled(definition.category())
+                        && plugin.getPluginConfig().isStructureEnabled(definition.id())
         );
     }
 
-    private void onPlacementComplete(World world, StructureDefinition chosen, PlacementResult result, int chunkX, int chunkZ) {
+    private void onPlacementComplete(World world, StructureDefinition chosen, PlacementResult result) {
         if (!result.success() || result.anchor() == null || result.footprint() == null) {
             return;
         }
@@ -159,8 +200,17 @@ public final class StructureGenerator {
 
         if (plugin.getPluginConfig().isDebug()) {
             plugin.getLogger().info("Placed " + chosen.id() + " at " + result.anchor().getBlockX() + ", "
-                    + result.anchor().getBlockY() + ", " + result.anchor().getBlockZ()
-                    + " (chunk " + chunkX + "," + chunkZ + ")");
+                    + result.anchor().getBlockY() + ", " + result.anchor().getBlockZ());
         }
+    }
+
+    private boolean isWorldEligible(World world) {
+        if (!plugin.getPluginConfig().isEnabled()) {
+            return false;
+        }
+        if (!plugin.getPluginConfig().isWorldEnabled(world.getName())) {
+            return false;
+        }
+        return world.getEnvironment() == World.Environment.THE_END;
     }
 }

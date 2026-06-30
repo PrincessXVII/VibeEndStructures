@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 import ru.vibecraft.vibeendstructures.command.VibeEndCommand;
 import ru.vibecraft.vibeendstructures.generation.ChunkStructureListener;
+import ru.vibecraft.vibeendstructures.generation.GenerationQueue;
 import ru.vibecraft.vibeendstructures.generation.StructureGenerator;
 import ru.vibecraft.vibeendstructures.generation.StructureOccupancy;
 import ru.vibecraft.vibeendstructures.loot.LootDatapackInstaller;
@@ -23,6 +24,7 @@ public final class VibeEndStructuresPlugin extends JavaPlugin {
     private StructurePlacer placer;
     private StructureGenerator generator;
     private StructureOccupancy occupancy;
+    private GenerationQueue generationQueue;
     private LootDatapackInstaller lootInstaller;
 
     @Override
@@ -43,6 +45,7 @@ public final class VibeEndStructuresPlugin extends JavaPlugin {
         placer = new StructurePlacer(this, registry, jigsawMetadata, metaRegistry, finalizeService, getLogger());
         occupancy = new StructureOccupancy(this);
         generator = new StructureGenerator(this, registry, placer, occupancy);
+        generationQueue = new GenerationQueue(this, generator);
         lootInstaller = new LootDatapackInstaller(this);
 
         Bukkit.getPluginManager().registerEvents(new ChunkStructureListener(generator), this);
@@ -59,6 +62,7 @@ public final class VibeEndStructuresPlugin extends JavaPlugin {
         }
 
         getLogger().info("VibeEndStructures enabled — loaded " + registry.getDefinitions().size() + " structure types.");
+        getLogger().info("Structures directory: " + registry.getStructuresRoot().getAbsolutePath());
     }
 
     @Override
@@ -86,5 +90,13 @@ public final class VibeEndStructuresPlugin extends JavaPlugin {
 
     public StructurePlacer getPlacer() {
         return placer;
+    }
+
+    public StructureGenerator getGenerator() {
+        return generator;
+    }
+
+    public GenerationQueue getGenerationQueue() {
+        return generationQueue;
     }
 }

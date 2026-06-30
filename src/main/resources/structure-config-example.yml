@@ -1,0 +1,23 @@
+enabled: true
+category: structure
+placement-type: ground
+min-y: 45
+
+placement:
+  spacing: 40
+  separation: 18
+  salt: 136568741
+  min-distance-from-origin: 1000
+
+start-height:
+  offset: 0
+
+jigsaw-size: 1
+
+pieces:
+  - file: astral_hideaway.nbt
+    weight: 1
+    pool: vibeend:astral_hideaway_start_pool
+    location: vibeend:astral_hideaway
+
+jigsaw-links: []

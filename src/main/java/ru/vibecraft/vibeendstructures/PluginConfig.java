@@ -23,6 +23,9 @@ public final class PluginConfig {
     private int gridSeparation;
     private int gridSalt;
     private int structureMinDistance;
+    private int maxStructuresPerChunk;
+    private int placementsPerTick;
+    private int progressIntervalTicks;
 
     public PluginConfig(VibeEndStructuresPlugin plugin) {
         this.plugin = plugin;
@@ -47,6 +50,9 @@ public final class PluginConfig {
         gridSeparation = cfg.getInt("grid.separation", 4);
         gridSalt = cfg.getInt("grid.salt", 928451883);
         structureMinDistance = cfg.getInt("structure-min-distance", 22);
+        maxStructuresPerChunk = cfg.getInt("max-structures-per-chunk", 1);
+        placementsPerTick = cfg.getInt("generation.placements-per-tick", 1);
+        progressIntervalTicks = cfg.getInt("generation.progress-interval-ticks", 100);
     }
 
     public boolean isEnabled() {
@@ -104,5 +110,17 @@ public final class PluginConfig {
 
     public int getStructureMinDistance() {
         return structureMinDistance;
+    }
+
+    public int getMaxStructuresPerChunk() {
+        return maxStructuresPerChunk;
+    }
+
+    public int getPlacementsPerTick() {
+        return placementsPerTick;
+    }
+
+    public int getProgressIntervalTicks() {
+        return progressIntervalTicks;
     }
 }

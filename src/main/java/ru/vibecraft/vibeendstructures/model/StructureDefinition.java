@@ -6,6 +6,9 @@ import java.util.Map;
 public record StructureDefinition(
         String id,
         String category,
+        boolean enabled,
+        PlacementType placementType,
+        StartHeight startHeight,
         int spacing,
         int separation,
         int salt,

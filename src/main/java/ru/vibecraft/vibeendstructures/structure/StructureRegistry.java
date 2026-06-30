@@ -1,22 +1,17 @@
 package ru.vibecraft.vibeendstructures.structure;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.structure.Mirror;
 import org.bukkit.block.structure.StructureRotation;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.structure.Structure;
 import org.bukkit.structure.StructureManager;
-import org.bukkit.plugin.java.JavaPlugin;
 import ru.vibecraft.vibeendstructures.model.StructureDefinition;
 import ru.vibecraft.vibeendstructures.model.StructurePiece;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -38,101 +33,76 @@ public final class StructureRegistry {
         this.plugin = plugin;
     }
 
+    public File getStructuresRoot() {
+        return new File(plugin.getDataFolder(), "structures");
+    }
+
     public void load() {
         definitions.clear();
         loadedStructures.clear();
         poolIndex.clear();
 
-        try (InputStream in = plugin.getResource("manifest.json")) {
-            if (in == null) {
-                throw new IllegalStateException("manifest.json not found in plugin jar");
+        File structuresRoot = getStructuresRoot();
+        StructureBootstrap.ensureDefaults(plugin, structuresRoot);
+
+        File[] structureDirs = structuresRoot.listFiles(File::isDirectory);
+        if (structureDirs == null || structureDirs.length == 0) {
+            plugin.getLogger().warning("No structures found in " + structuresRoot.getAbsolutePath());
+            return;
+        }
+
+        StructureManager manager = Bukkit.getStructureManager();
+        int loadedPieces = 0;
+
+        for (File structureDir : structureDirs) {
+            File configFile = new File(structureDir, "config.yml");
+            if (!configFile.exists()) {
+                plugin.getLogger().warning("Skipping " + structureDir.getName() + " — config.yml not found");
+                continue;
             }
-            JsonObject root = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
-            JsonArray structures = root.getAsJsonArray("structures");
 
-            StructureManager manager = Bukkit.getStructureManager();
-            int loaded = 0;
-
-            for (JsonElement element : structures) {
-                JsonObject obj = element.getAsJsonObject();
-                String id = obj.get("id").getAsString();
-                String category = obj.get("category").getAsString();
-
-                JsonObject placement = obj.getAsJsonObject("placement");
-                int spacing = intOrDefault(placement, "spacing", 32);
-                int separation = intOrDefault(placement, "separation", 8);
-                int salt = intOrDefault(placement, "salt", id.hashCode());
-                Integer minDist = placement.has("min_distance_from_world_origin") && !placement.get("min_distance_from_world_origin").isJsonNull()
-                        ? placement.get("min_distance_from_world_origin").getAsInt()
-                        : null;
-
-                int minY = 45;
-                if (obj.has("y_allowance") && obj.get("y_allowance").isJsonObject()) {
-                    minY = intOrDefault(obj.getAsJsonObject("y_allowance"), "min_y_allowed", 45);
-                }
-
-                int jigsawSize = intOrDefault(obj, "jigsaw_size", 1);
-
-                List<StructurePiece> pieces = new ArrayList<>();
-                for (JsonElement pieceEl : obj.getAsJsonArray("pieces")) {
-                    JsonObject piece = pieceEl.getAsJsonObject();
-                    String file = piece.get("file").getAsString();
-                    String resourcePath = toResourcePath(file);
-                    int weight = intOrDefault(piece, "weight", 1);
-                    String pool = piece.has("pool") ? piece.get("pool").getAsString() : "";
-                    String location = piece.has("location") ? piece.get("location").getAsString() : "";
-                    pieces.add(new StructurePiece(resourcePath, weight, pool, location));
-                }
-
-                List<Map<String, String>> jigsawLinks = new ArrayList<>();
-                if (obj.has("jigsaw_links")) {
-                    for (JsonElement linkEl : obj.getAsJsonArray("jigsaw_links")) {
-                        JsonObject link = linkEl.getAsJsonObject();
-                        jigsawLinks.add(Map.of(
-                                "from", link.get("from").getAsString(),
-                                "to", link.get("to").getAsString()
-                        ));
-                    }
-                }
-
-                StructureDefinition definition = new StructureDefinition(
-                        id, category, spacing, separation, salt, minDist, minY, jigsawSize, pieces, jigsawLinks
-                );
-                definitions.put(id, definition);
+            try {
+                StructureDefinition definition = StructureConfigLoader.load(structureDir, configFile);
+                definitions.put(definition.id(), definition);
 
                 Map<String, List<StructurePiece>> pools = new HashMap<>();
-                for (StructurePiece piece : pieces) {
+                for (StructurePiece piece : definition.pieces()) {
                     if (!piece.pool().isEmpty()) {
                         pools.computeIfAbsent(piece.pool(), ignored -> new ArrayList<>()).add(piece);
                     }
                 }
-                poolIndex.put(id, pools);
+                poolIndex.put(definition.id(), pools);
 
-                for (StructurePiece piece : pieces) {
-                    String key = id + "/" + piece.resourcePath();
+                File nbtDir = new File(structureDir, definition.id());
+                for (StructurePiece piece : definition.pieces()) {
+                    String key = piece.resourcePath();
                     if (loadedStructures.containsKey(key)) {
                         continue;
                     }
-                    try (InputStream nbt = plugin.getResource("structures/" + piece.resourcePath())) {
-                        if (nbt == null) {
-                            plugin.getLogger().warning("Missing NBT: structures/" + piece.resourcePath());
-                            continue;
-                        }
+
+                    File nbtFile = new File(nbtDir, pieceFileName(piece.resourcePath()));
+                    if (!nbtFile.exists()) {
+                        plugin.getLogger().warning("Missing NBT: " + nbtFile.getAbsolutePath());
+                        continue;
+                    }
+
+                    try (FileInputStream nbt = new FileInputStream(nbtFile)) {
                         Structure structure = manager.loadStructure(nbt);
                         NamespacedKey nsKey = new NamespacedKey(plugin, sanitizeKey(key));
                         manager.registerStructure(nsKey, structure);
                         loadedStructures.put(key, structure);
-                        loaded++;
+                        loadedPieces++;
                     } catch (Exception ex) {
                         plugin.getLogger().log(Level.WARNING, "Failed to load structure piece " + key, ex);
                     }
                 }
+            } catch (Exception ex) {
+                plugin.getLogger().log(Level.WARNING, "Failed to load structure from " + structureDir.getName(), ex);
             }
-
-            plugin.getLogger().info("Loaded " + definitions.size() + " structure types (" + loaded + " NBT pieces)");
-        } catch (Exception ex) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load structure manifest", ex);
         }
+
+        plugin.getLogger().info("Loaded " + definitions.size() + " structure types (" + loadedPieces + " NBT pieces) from "
+                + structuresRoot.getAbsolutePath());
     }
 
     public Collection<StructureDefinition> getDefinitions() {
@@ -144,7 +114,7 @@ public final class StructureRegistry {
     }
 
     public Optional<Structure> getStructure(StructureDefinition definition, StructurePiece piece) {
-        return Optional.ofNullable(loadedStructures.get(definition.id() + "/" + piece.resourcePath()));
+        return Optional.ofNullable(loadedStructures.get(piece.resourcePath()));
     }
 
     public List<StructurePiece> getPiecesForPool(StructureDefinition definition, String pool) {
@@ -166,13 +136,13 @@ public final class StructureRegistry {
 
         if (definition.category().equals("mega_ship")) {
             for (StructurePiece piece : pieces) {
-                String name = piece.resourcePath();
+                String name = pieceFileName(piece.resourcePath());
                 if (name.equals(definition.id() + ".nbt")) {
                     return piece;
                 }
             }
             for (StructurePiece piece : pieces) {
-                String name = piece.resourcePath();
+                String name = pieceFileName(piece.resourcePath());
                 if (!name.contains("_end") && !name.contains("_side") && !name.contains("_top") && !name.contains("_middle")) {
                     return piece;
                 }
@@ -191,15 +161,9 @@ public final class StructureRegistry {
         return pieces.getLast();
     }
 
-    private static String toResourcePath(String manifestFile) {
-        if (manifestFile.startsWith("nbt/")) {
-            return manifestFile.substring(4);
-        }
-        return manifestFile;
-    }
-
-    private static int intOrDefault(JsonObject obj, String key, int defaultValue) {
-        return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsInt() : defaultValue;
+    private static String pieceFileName(String resourcePath) {
+        int slash = resourcePath.lastIndexOf('/');
+        return slash >= 0 ? resourcePath.substring(slash + 1) : resourcePath;
     }
 
     private static String sanitizeKey(String key) {
