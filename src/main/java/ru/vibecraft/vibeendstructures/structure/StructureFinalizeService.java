@@ -17,6 +17,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.GlowItemFrame;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.bukkit.entity.Shulker;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -143,6 +144,9 @@ public final class StructureFinalizeService {
         double radiusZ = (maxZ - minZ) / 2.0 + 4;
         for (Entity entity : world.getNearbyEntities(center, radiusX, radiusY, radiusZ)) {
             if (entity instanceof ItemFrame || entity instanceof GlowItemFrame || entity instanceof Shulker || entity instanceof Enderman) {
+                continue;
+            }
+            if (entity instanceof Player) {
                 continue;
             }
             if (entity instanceof LivingEntity) {

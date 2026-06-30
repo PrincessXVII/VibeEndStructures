@@ -20,6 +20,16 @@ public final class StructurePlacementUtil {
           Mirror mirror,
           Random random
   ) {
-    structure.place(anchor, true, rotation, mirror, -1, 1.0f, random, List.of(), List.of());
+    structure.place(
+            anchor,
+            false,
+            rotation,
+            mirror,
+            -1,
+            1.0f,
+            random,
+            List.of(StructureAirFilter.create(structure, anchor, rotation, mirror)),
+            List.of()
+    );
   }
 }

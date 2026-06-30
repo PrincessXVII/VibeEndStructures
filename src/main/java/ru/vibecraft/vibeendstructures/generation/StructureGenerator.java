@@ -123,24 +123,32 @@ public final class StructureGenerator {
             return GenerationResult.SKIPPED;
         }
 
-        world.getChunkAt(chunkX, chunkZ);
+        Random random = new Random(seed ^ (chunkX * 31L + chunkZ));
+        StructureFootprint preview = placer.previewFootprint(chosen, random);
 
-        Random random = new Random(seed ^ (chunkX * 31L + chunkZ) ^ chosen.salt());
-        Location anchor = PlacementAnchorResolver.resolve(world, chunkX, chunkZ, chosen, random).orElse(null);
-        if (anchor == null) {
-            return GenerationResult.SKIPPED;
+        Block surface;
+        if ("mega_ship".equals(chosen.category())) {
+            surface = ShipSpawnFinder.findSpawn(world, chunkX, chunkZ, random).orElse(null);
+        } else {
+            int minY = Math.max(chosen.minY(), plugin.getPluginConfig().getMinY());
+            surface = EndSurfaceFinder.findSurface(world, chunkX, chunkZ, minY, random).orElse(null);
+        }
+        if (surface == null) {
+            if (plugin.getPluginConfig().isDebug()) {
+                plugin.getLogger().info("No placement spot for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
+            }
+            return;
         }
 
-        StructureFootprint preview = placer.previewFootprint(chosen, random);
-        if (!occupancy.canPlace(
-                world,
-                anchor.getBlockX(),
-                anchor.getBlockY(),
-                anchor.getBlockZ(),
-                preview,
-                plugin.getPluginConfig().getStructureMinDistance()
-        )) {
-            return GenerationResult.SKIPPED;
+        int anchorX = surface.getX();
+        int anchorZ = surface.getZ();
+        int anchorY = surface.getY();
+
+        if (!occupancy.canPlace(world, anchorX, anchorY, anchorZ, preview, plugin.getPluginConfig().getStructureMinDistance())) {
+            if (plugin.getPluginConfig().isDebug()) {
+                plugin.getLogger().info("Skipped " + chosen.id() + " at " + anchorX + "," + anchorY + "," + anchorZ + " — overlaps another structure");
+            }
+            return;
         }
 
         StructurePiece piece = registry.pickPiece(chosen, random);
