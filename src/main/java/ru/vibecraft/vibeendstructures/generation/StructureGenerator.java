@@ -4,10 +4,12 @@ import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.block.structure.Mirror;
 import org.bukkit.block.structure.StructureRotation;
 import org.bukkit.persistence.PersistentDataType;
 import ru.vibecraft.vibeendstructures.VibeEndStructuresPlugin;
+import ru.vibecraft.vibeendstructures.model.PlacementType;
 import ru.vibecraft.vibeendstructures.model.StructureDefinition;
 import ru.vibecraft.vibeendstructures.model.StructurePiece;
 import ru.vibecraft.vibeendstructures.structure.PlacementResult;
@@ -137,18 +139,22 @@ public final class StructureGenerator {
             if (plugin.getPluginConfig().isDebug()) {
                 plugin.getLogger().info("No placement spot for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
             }
-            return;
+            return GenerationResult.SKIPPED;
         }
 
         int anchorX = surface.getX();
         int anchorZ = surface.getZ();
-        int anchorY = surface.getY();
+        int anchorY = chosen.placementType() == PlacementType.AIR
+                ? chosen.startHeight().resolveAirY(random)
+                : chosen.startHeight().resolveGroundY(surface.getY(), random);
+
+        Location anchor = new Location(world, anchorX, anchorY, anchorZ);
 
         if (!occupancy.canPlace(world, anchorX, anchorY, anchorZ, preview, plugin.getPluginConfig().getStructureMinDistance())) {
             if (plugin.getPluginConfig().isDebug()) {
                 plugin.getLogger().info("Skipped " + chosen.id() + " at " + anchorX + "," + anchorY + "," + anchorZ + " — overlaps another structure");
             }
-            return;
+            return GenerationResult.SKIPPED;
         }
 
         StructurePiece piece = registry.pickPiece(chosen, random);
