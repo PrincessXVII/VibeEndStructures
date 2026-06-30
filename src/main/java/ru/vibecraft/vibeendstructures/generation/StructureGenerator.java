@@ -108,16 +108,22 @@ public final class StructureGenerator {
         }
 
         Random random = new Random(seed ^ (chunkX * 31L + chunkZ));
-        int minY = Math.max(chosen.minY(), plugin.getPluginConfig().getMinY());
-        Block surface = EndSurfaceFinder.findSurface(world, chunkX, chunkZ, minY, random).orElse(null);
+        StructureFootprint preview = placer.previewFootprint(chosen, random);
+
+        Block surface;
+        if ("mega_ship".equals(chosen.category())) {
+            surface = ShipSpawnFinder.findSpawn(world, chunkX, chunkZ, preview, random).orElse(null);
+        } else {
+            int minY = Math.max(chosen.minY(), plugin.getPluginConfig().getMinY());
+            surface = EndSurfaceFinder.findSurface(world, chunkX, chunkZ, minY, random).orElse(null);
+        }
         if (surface == null) {
             if (plugin.getPluginConfig().isDebug()) {
-                plugin.getLogger().info("No surface for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
+                plugin.getLogger().info("No placement spot for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
             }
             return;
         }
 
-        StructureFootprint preview = placer.previewFootprint(chosen, random);
         int anchorX = surface.getX();
         int anchorZ = surface.getZ();
         int anchorY = surface.getY();
