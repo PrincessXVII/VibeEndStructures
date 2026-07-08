@@ -264,6 +264,21 @@ public final class DragonConfig {
             if (!yaml.isConfigurationSection("general")) {
                 yaml.set("general", defaults.get("general"));
                 changed = true;
+            } else {
+                changed |= fillMissing(yaml, defaults, "general.scheduled-egg-drop-chance");
+            }
+
+            ConfigurationSection defaultDragons = defaults.getConfigurationSection("dragons");
+            ConfigurationSection currentDragons = yaml.getConfigurationSection("dragons");
+            if (defaultDragons != null) {
+                if (currentDragons == null) {
+                    yaml.set("dragons", defaults.get("dragons"));
+                    changed = true;
+                } else {
+                    for (String dragonId : defaultDragons.getKeys(false)) {
+                        changed |= mergeDragonSpellDefaults(yaml, defaults, dragonId);
+                    }
+                }
             }
 
             ConfigurationSection defaultArenas = defaults.getConfigurationSection("arenas");
@@ -301,6 +316,91 @@ public final class DragonConfig {
         } catch (IOException ex) {
             logger.warning("Failed to migrate dragons.yml defaults: " + ex.getMessage());
         }
+    }
+
+    private boolean mergeDragonSpellDefaults(YamlConfiguration yaml, YamlConfiguration defaults, String dragonId) {
+        String base = "dragons." + dragonId + ".";
+        if (!yaml.isConfigurationSection("dragons." + dragonId)) {
+            yaml.set("dragons." + dragonId, defaults.get("dragons." + dragonId));
+            return true;
+        }
+
+        boolean changed = false;
+        List<String> currentAbilities = yaml.getStringList(base + "abilities");
+        List<String> defaultAbilities = defaults.getStringList(base + "abilities");
+        if (currentAbilities == null || currentAbilities.isEmpty()) {
+            if (!defaultAbilities.isEmpty()) {
+                yaml.set(base + "abilities", defaultAbilities);
+                changed = true;
+            }
+        } else {
+            List<String> merged = mergeUniqueStrings(currentAbilities, defaultAbilities);
+            if (!merged.equals(currentAbilities)) {
+                yaml.set(base + "abilities", merged);
+                changed = true;
+            }
+        }
+
+        List<Map<?, ?>> currentPhases = yaml.getMapList(base + "phases");
+        List<Map<?, ?>> defaultPhases = defaults.getMapList(base + "phases");
+        if (currentPhases == null || currentPhases.isEmpty()) {
+            if (!defaultPhases.isEmpty()) {
+                yaml.set(base + "phases", defaultPhases);
+                changed = true;
+            }
+            return changed;
+        }
+        if (defaultPhases.isEmpty()) {
+            return changed;
+        }
+
+        List<Map<String, Object>> mergedPhases = new ArrayList<>();
+        for (int i = 0; i < defaultPhases.size(); i++) {
+            Map<?, ?> defaultPhase = defaultPhases.get(i);
+            Map<?, ?> currentPhase = i < currentPhases.size() ? currentPhases.get(i) : null;
+            double threshold = currentPhase != null
+                    ? readDouble(currentPhase.get("threshold"), readDouble(defaultPhase.get("threshold"), 1.0))
+                    : readDouble(defaultPhase.get("threshold"), 1.0);
+            List<String> defaultPhaseAbilities = readStringList(defaultPhase.get("abilities"));
+            List<String> currentPhaseAbilities = currentPhase == null
+                    ? List.of()
+                    : readStringList(currentPhase.get("abilities"));
+
+            Map<String, Object> phase = new java.util.LinkedHashMap<>();
+            phase.put("threshold", threshold);
+            if (currentPhaseAbilities.isEmpty()) {
+                phase.put("abilities", defaultPhaseAbilities);
+                changed = true;
+            } else {
+                List<String> mergedAbilities = mergeUniqueStrings(currentPhaseAbilities, defaultPhaseAbilities);
+                phase.put("abilities", mergedAbilities);
+                if (!mergedAbilities.equals(currentPhaseAbilities)) {
+                    changed = true;
+                }
+            }
+            mergedPhases.add(phase);
+        }
+        for (int i = defaultPhases.size(); i < currentPhases.size(); i++) {
+            Map<?, ?> extra = currentPhases.get(i);
+            Map<String, Object> phase = new java.util.LinkedHashMap<>();
+            phase.put("threshold", readDouble(extra.get("threshold"), 1.0));
+            phase.put("abilities", readStringList(extra.get("abilities")));
+            mergedPhases.add(phase);
+        }
+        if (changed) {
+            yaml.set(base + "phases", mergedPhases);
+        }
+        return changed;
+    }
+
+    private List<String> mergeUniqueStrings(List<String> current, List<String> defaults) {
+        List<String> merged = new ArrayList<>(current);
+        for (String value : defaults) {
+            if (value != null && !value.isBlank() && !merged.contains(value)) {
+                merged.add(value);
+            }
+        }
+        return merged;
     }
 
     private boolean fillMissing(YamlConfiguration yaml, YamlConfiguration defaults, String path) {

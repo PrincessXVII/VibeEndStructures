@@ -5,6 +5,7 @@ import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
+import org.bukkit.World;
 import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -65,13 +66,17 @@ public final class DragonPhaseController {
             if (arena.state() != DragonArena.ArenaState.ACTIVE || arena.activeDragonUuid() == null) {
                 continue;
             }
-            EnderDragon dragon = fightService.findDragon(arena.activeDragonUuid()).orElse(null);
+            EnderDragon dragon = fightService.findDragon(arena.activeDragonUuid(), arena).orElse(null);
             ActiveDragon active = activeDragons.get(arena.activeDragonUuid());
             String dragonId = active == null ? arena.dragonTypeId() : active.dragonId();
             DragonDefinition definition = plugin.getDragonConfig().getDragon(dragonId);
             if (dragon == null || definition == null) {
                 continue;
             }
+            if (!dragon.getUniqueId().equals(arena.activeDragonUuid())) {
+                plugin.getDragonConfig().updateArena(arena.withActiveDragon(dragon.getUniqueId()));
+            }
+            fightService.rememberDragonLocation(dragon);
             activeDragons.computeIfAbsent(dragon.getUniqueId(), uuid -> new ActiveDragon(arena.id(), definition.id(), ""));
             tickDragon(dragon, arena, definition, activeDragons.get(dragon.getUniqueId()));
         }
@@ -91,6 +96,22 @@ public final class DragonPhaseController {
         hideVanillaBossBar(dragon);
         sendActionBar(dragon.getLocation(), arena.radius(), definition, healthPercent, phaseKey);
         abilityExecutor.tick(dragon, arena, definition, abilities);
+    }
+
+    private void sendActionBar(Location dragonLocation, int arenaRadius, DragonDefinition definition, double healthPercent, String phaseKey) {
+        Component action = Component.text(definition.displayName()
+                + " | " + phaseLabel(phaseKey)
+                + " | HP " + Math.round(healthPercent * 100) + "%");
+        World world = dragonLocation.getWorld();
+        if (world == null) {
+            return;
+        }
+        double viewRadiusSquared = Math.pow(arenaRadius + 96.0, 2);
+        for (Player player : world.getPlayers()) {
+            if (player.getLocation().distanceSquared(dragonLocation) <= viewRadiusSquared) {
+                player.sendActionBar(action);
+            }
+        }
     }
 
     private DragonPhase selectPhase(List<DragonPhase> phases, double healthPercent) {
@@ -128,18 +149,6 @@ public final class DragonPhaseController {
         for (Player player : location.getWorld().getPlayers()) {
             if (player.getLocation().distanceSquared(location) <= radiusSquared) {
                 player.sendMessage(message);
-            }
-        }
-    }
-
-    private void sendActionBar(Location center, int radius, DragonDefinition definition, double healthPercent, String phaseKey) {
-        Component action = Component.text(definition.displayName()
-                + " | " + phaseLabel(phaseKey)
-                + " | HP " + Math.round(healthPercent * 100) + "%");
-        double radiusSquared = radius * radius;
-        for (Player player : center.getWorld().getPlayers()) {
-            if (player.getLocation().distanceSquared(center) <= radiusSquared) {
-                player.sendActionBar(action);
             }
         }
     }

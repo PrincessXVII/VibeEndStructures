@@ -8,6 +8,7 @@ import org.bukkit.SoundCategory;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.EnderDragon;
 import org.bukkit.entity.Endermite;
 import org.bukkit.entity.Entity;
@@ -34,7 +35,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class DragonAbilityExecutor {
 
-    private static final long DEFAULT_COOLDOWN_MILLIS = 8_000L;
     private static final long PRESSURE_WINDOW_MILLIS = 12_000L;
 
     private final VibeEndStructuresPlugin plugin;
@@ -98,7 +98,13 @@ public final class DragonAbilityExecutor {
             case METEOR_STRIKE -> meteorStrike(dragon, arena, definition);
             case SUMMON_ENDERMITE -> summonEndermites(dragon);
             case FROST_NOVA -> frostNova(dragon, arena);
-            default -> debugNoop(ability);
+            case PHASE_SHIFT -> phaseShift(dragon, arena);
+            case LAVA_POOL -> lavaPool(dragon, arena);
+            case FLARE_BURST -> flareBurst(dragon, arena);
+            case IGNITE_AREA -> igniteArea(dragon, arena);
+            case BLIZZARD -> blizzard(dragon, arena);
+            case ICE_SPIKES -> iceSpikes(dragon, arena);
+            case FREEZE_AREA -> freezeArea(dragon, arena);
         }
     }
 
@@ -148,12 +154,206 @@ public final class DragonAbilityExecutor {
 
     private void frostNova(EnderDragon dragon, DragonArena arena) {
         Location origin = dragon.getLocation();
-        DragonParticles.spawn(plugin, dragon.getWorld(), Particle.SNOWFLAKE, origin, 140, 10.0, 2.5, 10.0, 0.03);
+        DragonParticles.spawn(plugin, dragon.getWorld(), Particle.SNOWFLAKE, origin, 100, 10.0, 2.5, 10.0, 0.03);
         dragon.getWorld().playSound(origin, Sound.BLOCK_GLASS_BREAK, SoundCategory.HOSTILE, 2.0f, 0.6f);
         for (Player player : nearbyPlayers(dragon, Math.min(arena.radius(), 18))) {
             player.damage(5.0, dragon);
             player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 120, 2, true, true));
         }
+    }
+
+    private void phaseShift(EnderDragon dragon, DragonArena arena) {
+        Location origin = dragon.getLocation();
+        Location destination = randomArenaLocation(dragon.getWorld(), arena, origin, 14.0, 28.0);
+        if (destination == null) {
+            return;
+        }
+        DragonParticles.spawn(plugin, origin.getWorld(), Particle.PORTAL, origin.clone().add(0, 2.0, 0), 60, 2.5, 2.0, 2.5, 0.4);
+        DragonParticles.spawn(plugin, origin.getWorld(), Particle.END_ROD, origin.clone().add(0, 2.5, 0), 24, 1.5, 1.5, 1.5, 0.05);
+        origin.getWorld().playSound(origin, Sound.ENTITY_ENDERMAN_TELEPORT, SoundCategory.HOSTILE, 2.5f, 0.5f);
+        dragon.teleport(destination);
+        dragon.setVelocity(new Vector(0, 0.2, 0));
+        DragonParticles.spawn(plugin, destination.getWorld(), Particle.PORTAL, destination.clone().add(0, 2.0, 0), 60, 2.5, 2.0, 2.5, 0.4);
+        DragonParticles.spawn(plugin, destination.getWorld(), Particle.DRAGON_BREATH, destination.clone().add(0, 2.0, 0), 40, 3.0, 1.5, 3.0, 0.03);
+        destination.getWorld().playSound(destination, Sound.ENTITY_ENDER_DRAGON_FLAP, SoundCategory.HOSTILE, 2.0f, 0.7f);
+    }
+
+    private void lavaPool(EnderDragon dragon, DragonArena arena) {
+        Location center = targetLocation(dragon, arena);
+        World world = dragon.getWorld();
+        List<BlockSwap> swaps = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 3) {
+                    continue;
+                }
+                Block floor = world.getHighestBlockAt(center.getBlockX() + dx, center.getBlockZ() + dz);
+                Material type = floor.getType();
+                if (type.isAir() || type == Material.BEDROCK || type == Material.END_PORTAL) {
+                    continue;
+                }
+                swaps.add(new BlockSwap(floor, floor.getBlockData().clone()));
+                floor.setType(Material.MAGMA_BLOCK, false);
+            }
+        }
+        DragonParticles.spawn(plugin, world, Particle.LAVA, center, 20, 2.5, 0.5, 2.5, 0.0);
+        world.playSound(center, Sound.BLOCK_LAVA_POP, SoundCategory.HOSTILE, 2.0f, 0.6f);
+        damageNearby(center, dragon, 6.0, 5.0, player -> player.setFireTicks(Math.max(player.getFireTicks(), 60)));
+        scheduleBlockRevert(swaps, 20L * 7);
+    }
+
+    private void flareBurst(EnderDragon dragon, DragonArena arena) {
+        Location origin = dragon.getLocation().add(0, 2.0, 0);
+        World world = dragon.getWorld();
+        DragonParticles.spawn(plugin, world, Particle.FLAME, origin, 120, 8.0, 3.0, 8.0, 0.06);
+        DragonParticles.spawn(plugin, world, Particle.SMOKE, origin, 40, 6.0, 2.0, 6.0, 0.04);
+        world.playSound(origin, Sound.ENTITY_BLAZE_SHOOT, SoundCategory.HOSTILE, 2.5f, 0.5f);
+        damageNearby(origin, dragon, 10.0, 7.0, player -> player.setFireTicks(Math.max(player.getFireTicks(), 100)));
+    }
+
+    private void igniteArea(EnderDragon dragon, DragonArena arena) {
+        Location center = targetLocation(dragon, arena);
+        World world = dragon.getWorld();
+        List<Block> fireBlocks = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                Block floor = world.getHighestBlockAt(center.getBlockX() + dx, center.getBlockZ() + dz);
+                Block above = floor.getRelative(0, 1, 0);
+                if (above.getType().isAir()) {
+                    above.setType(Material.FIRE, false);
+                    fireBlocks.add(above);
+                }
+            }
+        }
+        DragonParticles.spawn(plugin, world, Particle.FLAME, center, 50, 3.0, 1.0, 3.0, 0.04);
+        world.playSound(center, Sound.ITEM_FIRECHARGE_USE, SoundCategory.HOSTILE, 2.0f, 0.8f);
+        damageNearby(center, dragon, 7.0, 3.0, player -> player.setFireTicks(Math.max(player.getFireTicks(), 80)));
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (Block fire : fireBlocks) {
+                if (fire.getType() == Material.FIRE) {
+                    fire.setType(Material.AIR, false);
+                }
+            }
+        }, 20L * 7);
+    }
+
+    private void blizzard(EnderDragon dragon, DragonArena arena) {
+        Location origin = dragon.getLocation();
+        World world = dragon.getWorld();
+        DragonParticles.spawn(plugin, world, Particle.SNOWFLAKE, origin, 160, 14.0, 4.0, 14.0, 0.04);
+        DragonParticles.spawn(plugin, world, Particle.CLOUD, origin, 40, 10.0, 2.0, 10.0, 0.02);
+        world.playSound(origin, Sound.ENTITY_PLAYER_HURT_FREEZE, SoundCategory.HOSTILE, 2.0f, 0.7f);
+        for (Player player : nearbyPlayers(dragon, Math.min(arena.radius(), 20))) {
+            player.damage(4.0, dragon);
+            player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 100, 1, true, true));
+        }
+    }
+
+    private void iceSpikes(EnderDragon dragon, DragonArena arena) {
+        Location center = targetLocation(dragon, arena);
+        World world = dragon.getWorld();
+        List<BlockSwap> swaps = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            double angle = (Math.PI * 2 / 6) * i + Math.random() * 0.4;
+            int x = center.getBlockX() + (int) Math.round(Math.cos(angle) * (3.0 + Math.random() * 2.0));
+            int z = center.getBlockZ() + (int) Math.round(Math.sin(angle) * (3.0 + Math.random() * 2.0));
+            Block floor = world.getHighestBlockAt(x, z);
+            Block spike = floor.getRelative(0, 1, 0);
+            if (!spike.getType().isAir() || floor.getType().isAir() || floor.getType() == Material.BEDROCK) {
+                continue;
+            }
+            swaps.add(new BlockSwap(spike, spike.getBlockData().clone()));
+            spike.setType(Material.PACKED_ICE, false);
+            if (Math.random() < 0.45 && spike.getRelative(0, 1, 0).getType().isAir()) {
+                Block top = spike.getRelative(0, 1, 0);
+                swaps.add(new BlockSwap(top, top.getBlockData().clone()));
+                top.setType(Material.PACKED_ICE, false);
+            }
+        }
+        DragonParticles.spawn(plugin, world, Particle.SNOWFLAKE, center, 60, 5.0, 2.0, 5.0, 0.03);
+        world.playSound(center, Sound.BLOCK_GLASS_BREAK, SoundCategory.HOSTILE, 2.0f, 1.2f);
+        damageNearby(center, dragon, 6.0, 6.0, player ->
+                player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 80, 1, true, true)));
+        scheduleBlockRevert(swaps, 20L * 6);
+    }
+
+    private void freezeArea(EnderDragon dragon, DragonArena arena) {
+        Location center = targetLocation(dragon, arena);
+        World world = dragon.getWorld();
+        List<BlockSwap> swaps = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                Block floor = world.getHighestBlockAt(center.getBlockX() + dx, center.getBlockZ() + dz);
+                Material original = floor.getType();
+                if (original.isAir() || original == Material.BEDROCK || original == Material.END_PORTAL || original == Material.ICE) {
+                    continue;
+                }
+                swaps.add(new BlockSwap(floor, floor.getBlockData().clone()));
+                floor.setType(Material.SNOW_BLOCK, false);
+            }
+        }
+        DragonParticles.spawn(plugin, world, Particle.SNOWFLAKE, center, 80, 4.0, 1.5, 4.0, 0.03);
+        world.playSound(center, Sound.BLOCK_POWDER_SNOW_STEP, SoundCategory.HOSTILE, 2.0f, 0.6f);
+        damageNearby(center, dragon, 7.0, 4.0, player -> {
+            player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 20 * 5, 2, true, true));
+            player.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, 20 * 4, 0, true, true));
+        });
+        scheduleBlockRevert(swaps, 20L * 7);
+    }
+
+    private Location targetLocation(EnderDragon dragon, DragonArena arena) {
+        return nearestPlayer(dragon, arena.radius())
+                .map(Player::getLocation)
+                .orElse(dragon.getLocation());
+    }
+
+    private Location randomArenaLocation(World world, DragonArena arena, Location origin, double minDistance, double maxDistance) {
+        for (int attempt = 0; attempt < 16; attempt++) {
+            double angle = Math.random() * Math.PI * 2.0;
+            double distance = minDistance + Math.random() * (maxDistance - minDistance);
+            int x = arena.centerX() + (int) Math.round(Math.cos(angle) * distance);
+            int z = arena.centerZ() + (int) Math.round(Math.sin(angle) * distance);
+            Block floor = world.getHighestBlockAt(x, z);
+            if (floor.getType().isAir() || floor.getType() == Material.BEDROCK) {
+                continue;
+            }
+            Location candidate = floor.getLocation().add(0.5, 3.0, 0.5);
+            if (candidate.distanceSquared(origin) < minDistance * minDistance) {
+                continue;
+            }
+            return candidate;
+        }
+        return origin.clone().add(0, 2.0, 0);
+    }
+
+    private void damageNearby(Location center, EnderDragon dragon, double radius, double damage, PlayerEffect effect) {
+        double radiusSquared = radius * radius;
+        World world = center.getWorld();
+        if (world == null) {
+            return;
+        }
+        for (Player player : world.getPlayers()) {
+            if (player.isDead() || player.getLocation().distanceSquared(center) > radiusSquared) {
+                continue;
+            }
+            player.damage(damage, dragon);
+            if (effect != null) {
+                effect.apply(player);
+            }
+        }
+    }
+
+    private void scheduleBlockRevert(List<BlockSwap> swaps, long delayTicks) {
+        if (swaps.isEmpty()) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (BlockSwap swap : swaps) {
+                if (swap.block().getWorld() != null) {
+                    swap.block().setBlockData(swap.original(), false);
+                }
+            }
+        }, delayTicks);
     }
 
     private void meteorStrike(EnderDragon dragon, DragonArena arena, DragonDefinition definition) {
@@ -205,14 +405,14 @@ public final class DragonAbilityExecutor {
             Location buryCenter = site.cubeCenterAtY(Math.max(world.getMinHeight() + 1.5, 1.5));
             Location start = meteorStart(surfaceCenter, dragon.getLocation());
             Material block = type == DragonType.FIRE ? Material.MAGMA_BLOCK : Material.ICE;
-            DragonMeteorHolograms.MeteorVisual visual = DragonMeteorHolograms.spawnCube(plugin, start, block);
+            BlockDisplay visual = DragonMeteorDisplay.spawn(world, start, block);
             if (visual == null) {
                 applyMeteorImpact(world, site.surfaceImpact(), dragon, type);
                 return;
             }
 
-            int approachSteps = 56;
-            int burySteps = Math.max(32, (int) Math.ceil((surfaceCenter.getY() - buryCenter.getY()) / 0.4));
+            int approachSteps = 48;
+            int burySteps = Math.max(28, (int) Math.ceil((surfaceCenter.getY() - buryCenter.getY()) / 0.45));
 
             final boolean[] impacted = {false};
             final boolean[] cleaned = {false};
@@ -227,7 +427,7 @@ public final class DragonAbilityExecutor {
                 if (taskRef[0] != null) {
                     taskRef[0].cancel();
                 }
-                DragonMeteorHolograms.remove(visual);
+                DragonMeteorDisplay.remove(visual);
             };
 
             taskRef[0] = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
@@ -235,8 +435,8 @@ public final class DragonAbilityExecutor {
                 if (tick[0] <= approachSteps) {
                     double progress = tick[0] / (double) approachSteps;
                     Location current = lerpLocation(start, surfaceCenter, easeInCubic(progress));
-                    DragonMeteorHolograms.move(visual, current);
-                    if (tick[0] % 2 == 0) {
+                    DragonMeteorDisplay.move(visual, current);
+                    if (tick[0] % 3 == 0) {
                         spawnMeteorTrail(world, current, type);
                     }
                     return;
@@ -244,7 +444,7 @@ public final class DragonAbilityExecutor {
 
                 if (!impacted[0]) {
                     impacted[0] = true;
-                    DragonMeteorHolograms.move(visual, surfaceCenter.clone());
+                    DragonMeteorDisplay.move(visual, surfaceCenter.clone());
                     applyMeteorImpact(world, site.surfaceImpact(), dragon, type);
                 }
 
@@ -252,8 +452,8 @@ public final class DragonAbilityExecutor {
                 if (buryTick <= burySteps) {
                     double progress = buryTick / (double) burySteps;
                     Location current = lerpLocation(surfaceCenter, buryCenter, easeInQuad(progress));
-                    DragonMeteorHolograms.move(visual, current);
-                    if (buryTick % 2 == 0) {
+                    DragonMeteorDisplay.move(visual, current);
+                    if (buryTick % 3 == 0) {
                         spawnMeteorTrail(world, current, type);
                     }
                     if (buryTick == burySteps) {
@@ -272,12 +472,9 @@ public final class DragonAbilityExecutor {
 
     private void spawnMeteorTrail(World world, Location current, DragonType type) {
         Particle trail = type == DragonType.FIRE ? Particle.FLAME : Particle.SNOWFLAKE;
-        DragonParticles.spawn(plugin, world, trail, current.clone(), 16, 1.0, 1.0, 1.0, 0.03);
-        DragonParticles.spawn(plugin, world, Particle.SMOKE, current.clone(), 8, 0.6, 0.6, 0.6, 0.02);
-        if (type == DragonType.FIRE) {
-            DragonParticles.spawn(plugin, world, Particle.LAVA, current.clone(), 3, 0.4, 0.4, 0.4, 0.0);
-        } else {
-            DragonParticles.spawn(plugin, world, Particle.CLOUD, current.clone(), 5, 0.5, 0.5, 0.5, 0.01);
+        DragonParticles.spawn(plugin, world, trail, current.clone(), 8, 0.8, 0.8, 0.8, 0.02);
+        if (type == DragonType.FIRE && current.getBlockY() % 2 == 0) {
+            DragonParticles.spawn(plugin, world, Particle.SMOKE, current.clone(), 4, 0.4, 0.4, 0.4, 0.01);
         }
     }
 
@@ -413,16 +610,13 @@ public final class DragonAbilityExecutor {
             case CHARGE -> 5_000L;
             case DRAGON_BREATH, FIRE_BREATH, ICE_BREATH -> 9_000L;
             case SUMMON_ENDERMITE -> 18_000L;
-            case FROST_NOVA -> 14_000L;
+            case FROST_NOVA, BLIZZARD -> 14_000L;
             case METEOR_STRIKE -> 12_000L;
-            default -> DEFAULT_COOLDOWN_MILLIS;
+            case PHASE_SHIFT -> 16_000L;
+            case LAVA_POOL, IGNITE_AREA, FREEZE_AREA -> 13_000L;
+            case FLARE_BURST -> 10_000L;
+            case ICE_SPIKES -> 11_000L;
         };
-    }
-
-    private void debugNoop(DragonAbility ability) {
-        if (plugin.getPluginConfig().isDebug()) {
-            plugin.getLogger().info("Dragon ability is configured but not implemented in v1: " + ability);
-        }
     }
 
     private interface PlayerEffect {
