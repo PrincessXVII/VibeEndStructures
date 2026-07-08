@@ -41,7 +41,10 @@ public final class DragonConfig {
         }
 
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
+        migrateMissingDefaults(yaml);
 
+        dragonDefinitions = new HashMap<>();
+        arenas = new HashMap<>();
         loadDragons(yaml);
         loadArenas(yaml);
         loadGeneral(yaml);
@@ -61,7 +64,7 @@ public final class DragonConfig {
 
             String id = ds.getString("id", key);
             String displayName = ds.getString("display-name", id);
-            DragonType type = DragonType.valueOf(ds.getString("type", "NORMAL"));
+            DragonType type = parseDragonType(ds.getString("type", "NORMAL"));
             boolean enabled = ds.getBoolean("enabled", true);
             double health = ds.getDouble("health", 200);
             double damage = ds.getDouble("damage", 10);
@@ -74,30 +77,20 @@ public final class DragonConfig {
             List<DragonAbility> abilities = parseAbilities(ds.getStringList("abilities"));
 
             List<DragonPhase> phases = new ArrayList<>();
-            List<?> rawPhases = ds.getList("phases");
-            if (rawPhases != null) {
-                for (Object obj : rawPhases) {
-                    if (obj instanceof ConfigurationSection ps) {
-                        double threshold = ps.getDouble("threshold", 0);
-                        List<DragonAbility> phaseAbilities = parseAbilities(ps.getStringList("abilities"));
-                        phases.add(new DragonPhase(threshold, phaseAbilities));
-                    }
-                }
+            for (Map<?, ?> rawPhase : ds.getMapList("phases")) {
+                double threshold = readDouble(rawPhase.get("threshold"), 0);
+                List<DragonAbility> phaseAbilities = parseAbilities(readStringList(rawPhase.get("abilities")));
+                phases.add(new DragonPhase(threshold, phaseAbilities));
             }
 
             double eggDropChance = ds.getDouble("egg-drop-chance", 0.1);
 
             List<RewardTier> rewardTiers = new ArrayList<>();
-            List<?> rawTiers = ds.getList("reward-tiers");
-            if (rawTiers != null) {
-                for (Object obj : rawTiers) {
-                    if (obj instanceof ConfigurationSection ts) {
-                        double minContribution = ts.getDouble("min-contribution", 0);
-                        String lootTable = ts.getString("loot-table", "");
-                        List<String> commands = ts.getStringList("commands");
-                        rewardTiers.add(new RewardTier(minContribution, lootTable, commands));
-                    }
-                }
+            for (Map<?, ?> rawTier : ds.getMapList("reward-tiers")) {
+                double minContribution = readDouble(rawTier.get("min-contribution"), 0);
+                String lootTable = readString(rawTier.get("loot-table"), "");
+                List<String> commands = readStringList(rawTier.get("commands"));
+                rewardTiers.add(new RewardTier(minContribution, lootTable, commands));
             }
 
             List<String> titles = ds.getStringList("titles");
@@ -127,6 +120,46 @@ public final class DragonConfig {
         return result;
     }
 
+    private DragonType parseDragonType(String raw) {
+        try {
+            return DragonType.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException ex) {
+            logger.warning("Invalid dragon type in dragons.yml: " + raw + ", using NORMAL");
+            return DragonType.NORMAL;
+        }
+    }
+
+    private double readDouble(Object value, double fallback) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String string) {
+            try {
+                return Double.parseDouble(string);
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private String readString(Object value, String fallback) {
+        return value == null ? fallback : String.valueOf(value);
+    }
+
+    private List<String> readStringList(Object value) {
+        if (!(value instanceof List<?> rawList)) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (Object entry : rawList) {
+            if (entry != null) {
+                result.add(String.valueOf(entry));
+            }
+        }
+        return result;
+    }
+
     private void loadArenas(YamlConfiguration yaml) {
         ConfigurationSection arenasSection = yaml.getConfigurationSection("arenas");
         if (arenasSection == null) {
@@ -147,13 +180,37 @@ public final class DragonConfig {
             long cooldownHours = as.getLong("cooldown-hours", 24);
             String spawnStructure = as.getString("spawn-structure", "");
             boolean enabled = as.getBoolean("enabled", true);
+            UUID activeDragonUuid = parseUuid(as.getString("active-dragon-uuid", null));
+            long cooldownUntil = as.getLong("cooldown-until", 0);
+            DragonArena.ArenaState state = parseArenaState(as.getString("state", enabled ? "IDLE" : "DISABLED"));
 
             DragonArena arena = new DragonArena(
                 id, name, dragonTypeId, centerX, centerZ, radius, height,
-                cooldownHours, spawnStructure, enabled, null, 0, DragonArena.ArenaState.IDLE
+                cooldownHours, spawnStructure, enabled, activeDragonUuid, cooldownUntil, state
             );
 
             arenas.put(id, arena);
+        }
+    }
+
+    private UUID parseUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ex) {
+            logger.warning("Invalid active dragon UUID in dragons.yml: " + raw);
+            return null;
+        }
+    }
+
+    private DragonArena.ArenaState parseArenaState(String raw) {
+        try {
+            return DragonArena.ArenaState.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException | NullPointerException ex) {
+            logger.warning("Invalid arena state in dragons.yml: " + raw);
+            return DragonArena.ArenaState.IDLE;
         }
     }
 
@@ -191,6 +248,77 @@ public final class DragonConfig {
         }
     }
 
+    private void migrateMissingDefaults(YamlConfiguration yaml) {
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("dragons.yml")) {
+            if (in == null) {
+                return;
+            }
+            YamlConfiguration defaults = YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+            boolean changed = false;
+
+            if (!yaml.isConfigurationSection("dragons")) {
+                yaml.set("dragons", defaults.get("dragons"));
+                changed = true;
+            }
+            if (!yaml.isConfigurationSection("general")) {
+                yaml.set("general", defaults.get("general"));
+                changed = true;
+            }
+
+            ConfigurationSection defaultArenas = defaults.getConfigurationSection("arenas");
+            ConfigurationSection currentArenas = yaml.getConfigurationSection("arenas");
+            if (defaultArenas != null) {
+                if (currentArenas == null) {
+                    yaml.set("arenas", defaults.get("arenas"));
+                    changed = true;
+                } else {
+                    for (String arenaId : defaultArenas.getKeys(false)) {
+                        String base = "arenas." + arenaId + ".";
+                        if (!currentArenas.isConfigurationSection(arenaId)) {
+                            yaml.set("arenas." + arenaId, defaults.get("arenas." + arenaId));
+                            changed = true;
+                            continue;
+                        }
+                        changed |= fillBlank(yaml, defaults, base + "id");
+                        changed |= fillBlank(yaml, defaults, base + "name");
+                        changed |= fillBlank(yaml, defaults, base + "dragon-type");
+                        changed |= fillMissing(yaml, defaults, base + "center-x");
+                        changed |= fillMissing(yaml, defaults, base + "center-z");
+                        changed |= fillMissing(yaml, defaults, base + "radius");
+                        changed |= fillMissing(yaml, defaults, base + "height");
+                        changed |= fillMissing(yaml, defaults, base + "cooldown-hours");
+                        changed |= fillMissing(yaml, defaults, base + "spawn-structure");
+                        changed |= fillMissing(yaml, defaults, base + "enabled");
+                    }
+                }
+            }
+
+            if (changed) {
+                yaml.save(configFile);
+                logger.info("Migrated missing dragon defaults into dragons.yml");
+            }
+        } catch (IOException ex) {
+            logger.warning("Failed to migrate dragons.yml defaults: " + ex.getMessage());
+        }
+    }
+
+    private boolean fillMissing(YamlConfiguration yaml, YamlConfiguration defaults, String path) {
+        if (yaml.contains(path)) {
+            return false;
+        }
+        yaml.set(path, defaults.get(path));
+        return true;
+    }
+
+    private boolean fillBlank(YamlConfiguration yaml, YamlConfiguration defaults, String path) {
+        String value = yaml.getString(path);
+        if (value != null && !value.isBlank()) {
+            return false;
+        }
+        yaml.set(path, defaults.get(path));
+        return true;
+    }
+
     public Map<String, DragonDefinition> getDragonDefinitions() {
         return dragonDefinitions;
     }
@@ -216,6 +344,16 @@ public final class DragonConfig {
 
         for (DragonArena arena : arenas.values()) {
             String base = "arenas." + arena.id() + ".";
+            yaml.set(base + "id", arena.id());
+            yaml.set(base + "name", arena.name());
+            yaml.set(base + "dragon-type", arena.dragonTypeId());
+            yaml.set(base + "center-x", arena.centerX());
+            yaml.set(base + "center-z", arena.centerZ());
+            yaml.set(base + "radius", arena.radius());
+            yaml.set(base + "height", arena.height());
+            yaml.set(base + "cooldown-hours", arena.cooldownHours());
+            yaml.set(base + "spawn-structure", arena.spawnStructure());
+            yaml.set(base + "enabled", arena.enabled());
             yaml.set(base + "cooldown-until", arena.cooldownUntil());
             yaml.set(base + "state", arena.state().name());
             yaml.set(base + "active-dragon-uuid", arena.activeDragonUuid() != null ? arena.activeDragonUuid().toString() : null);

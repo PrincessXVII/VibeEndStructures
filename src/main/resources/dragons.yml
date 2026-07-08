@@ -200,10 +200,10 @@ arenas:
     id: "fire_arena"
     name: "Огненная Арена"
     dragon-type: "fire_dragon"
-    center-x: 2000
-    center-z: 2000
+    center-x: 0
+    center-z: 0
     radius: 140
-    height: 90
+    height: 80
     cooldown-hours: 36
     spawn-structure: "dragon_arena_fire"
     enabled: true
@@ -212,10 +212,10 @@ arenas:
     id: "frost_arena"
     name: "Ледяная Арена"
     dragon-type: "frost_dragon"
-    center-x: -2000
-    center-z: -2000
+    center-x: 0
+    center-z: 0
     radius: 130
-    height: 85
+    height: 80
     cooldown-hours: 36
     spawn-structure: "dragon_arena_frost"
     enabled: true

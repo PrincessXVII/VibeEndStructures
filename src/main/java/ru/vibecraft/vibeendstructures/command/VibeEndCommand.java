@@ -15,6 +15,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import ru.vibecraft.vibeendstructures.VibeEndStructuresPlugin;
+import ru.vibecraft.vibeendstructures.generation.StructureOccupancy;
 import ru.vibecraft.vibeendstructures.generation.PlacementAnchorResolver;
 import ru.vibecraft.vibeendstructures.model.StructureDefinition;
 
@@ -57,6 +58,8 @@ public final class VibeEndCommand implements CommandExecutor, TabCompleter {
             case "paste" -> handlePaste(sender, args);
             case "generate" -> handleGenerate(sender, args);
             case "generatecancel", "cancelgenerate" -> plugin.getGenerationQueue().cancel(sender);
+            case "placements", "placed" -> handlePlacements(sender, args);
+            case "nearest" -> handleNearest(sender);
             default -> sendUsage(sender);
         }
 
@@ -156,12 +159,68 @@ public final class VibeEndCommand implements CommandExecutor, TabCompleter {
         return null;
     }
 
+    private void handlePlacements(CommandSender sender, String[] args) {
+        World world = sender instanceof Player player ? player.getWorld() : resolveConfiguredWorld();
+        if (world == null) {
+            sender.sendMessage(Component.text("Мир не найден. Используй команду из игры или проверь worlds в config.yml.", NamedTextColor.RED));
+            return;
+        }
+        int page = 1;
+        if (args.length >= 2) {
+            try {
+                page = Math.max(1, Integer.parseInt(args[1]));
+            } catch (NumberFormatException ex) {
+                sender.sendMessage(Component.text("Страница должна быть числом.", NamedTextColor.RED));
+                return;
+            }
+        }
+        List<StructureOccupancy.PlacedStructure> placements = plugin.getOccupancy().placedInWorld(world.getName());
+        int pageSize = 8;
+        int pages = Math.max(1, (int) Math.ceil(placements.size() / (double) pageSize));
+        page = Math.min(page, pages);
+        sender.sendMessage(Component.text("Поставленные структуры " + world.getName() + " (" + placements.size() + "), стр. " + page + "/" + pages, NamedTextColor.AQUA));
+        int from = (page - 1) * pageSize;
+        int to = Math.min(placements.size(), from + pageSize);
+        for (int i = from; i < to; i++) {
+            StructureOccupancy.PlacedStructure placement = placements.get(i);
+            sender.sendMessage(Component.text((i + 1) + ". " + placement.structureId()
+                    + " at " + placement.x() + " " + placement.y() + " " + placement.z()
+                    + " r=" + placement.radius(), NamedTextColor.GRAY));
+        }
+    }
+
+    private void handleNearest(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Component.text("Только игрок может искать ближайшую структуру.", NamedTextColor.RED));
+            return;
+        }
+        StructureOccupancy.PlacedStructure nearest = plugin.getOccupancy().nearest(player.getLocation()).orElse(null);
+        if (nearest == null) {
+            sender.sendMessage(Component.text("В этом мире ещё нет записанных структур.", NamedTextColor.YELLOW));
+            return;
+        }
+        double distance = Math.sqrt(nearest.distanceSquared(player.getLocation()));
+        sender.sendMessage(Component.text("Ближайшая структура: " + nearest.structureId()
+                + " at " + nearest.x() + " " + nearest.y() + " " + nearest.z()
+                + " (" + Math.round(distance) + " блоков)", NamedTextColor.AQUA));
+    }
+
+    private @Nullable World resolveConfiguredWorld() {
+        List<String> configured = plugin.getPluginConfig().getWorlds();
+        if (!configured.isEmpty()) {
+            return Bukkit.getWorld(configured.getFirst());
+        }
+        return null;
+    }
+
     private void sendUsage(CommandSender sender) {
         sender.sendMessage(Component.text("Использование:", NamedTextColor.YELLOW));
         sender.sendMessage(Component.text("/vibeend list", NamedTextColor.GRAY));
         sender.sendMessage(Component.text("/vibeend paste <structure>", NamedTextColor.GRAY));
         sender.sendMessage(Component.text("/vibeend generate [world] [radius]", NamedTextColor.GRAY));
         sender.sendMessage(Component.text("/vibeend generatecancel", NamedTextColor.GRAY));
+        sender.sendMessage(Component.text("/vibeend placements [page]", NamedTextColor.GRAY));
+        sender.sendMessage(Component.text("/vibeend nearest", NamedTextColor.GRAY));
         sender.sendMessage(Component.text("/vibeend reload", NamedTextColor.GRAY));
     }
 
@@ -171,7 +230,7 @@ public final class VibeEndCommand implements CommandExecutor, TabCompleter {
             return List.of();
         }
         if (args.length == 1) {
-            return filter(List.of("list", "paste", "generate", "generatecancel", "reload"), args[0]);
+            return filter(List.of("list", "paste", "generate", "generatecancel", "placements", "nearest", "reload"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("paste")) {
             return filter(plugin.getRegistry().getDefinitions().stream().map(StructureDefinition::id).sorted().toList(), args[1]);

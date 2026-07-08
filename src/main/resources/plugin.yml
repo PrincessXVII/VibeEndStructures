@@ -10,8 +10,25 @@ commands:
     description: ''
     usage: ''
     permission: vibeend.admin
+  vibedragon:
+    description: ''
+    usage: ''
+    permission: vibedragon.use
 
 permissions:
   vibeend.admin:
     description: ''
     default: op
+  vibedragon.use:
+    description: 'Allows using the /vibedragon command entrypoint.'
+    default: op
+  vibedragon.admin:
+    description: 'Full dragon administration access.'
+    default: op
+    children:
+      vibedragon.use: true
+  vibedragon.tester:
+    description: 'Full dragon testing access without structure-generation permissions.'
+    default: false
+    children:
+      vibedragon.use: true

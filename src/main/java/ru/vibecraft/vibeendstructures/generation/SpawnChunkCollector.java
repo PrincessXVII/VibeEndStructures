@@ -47,9 +47,10 @@ public final class SpawnChunkCollector {
     }
 
     private static boolean isInsideRadius(WorldBounds bounds, int chunkX, int chunkZ) {
-        int centerX = chunkX * 16 + 8;
-        int centerZ = chunkZ * 16 + 8;
-        return Math.hypot(centerX, centerZ) <= bounds.radiusBlocks();
+        long centerX = (long) chunkX * 16L + 8L;
+        long centerZ = (long) chunkZ * 16L + 8L;
+        long radius = bounds.radiusBlocks();
+        return centerX * centerX + centerZ * centerZ <= radius * radius;
     }
 
     private static int floorDiv(int value, int divisor) {

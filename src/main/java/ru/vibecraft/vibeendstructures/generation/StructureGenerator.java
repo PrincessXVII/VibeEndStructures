@@ -122,7 +122,7 @@ public final class StructureGenerator {
         int blockX = chunkX * 16 + 8;
         int blockZ = chunkZ * 16 + 8;
         if (Math.hypot(blockX, blockZ) < minDist) {
-            return GenerationResult.SKIPPED;
+            return GenerationResult.SKIPPED_TOO_CLOSE;
         }
 
         world.getChunkAt(chunkX, chunkZ);
@@ -132,7 +132,7 @@ public final class StructureGenerator {
             if (plugin.getPluginConfig().isDebug()) {
                 plugin.getLogger().info("No placement spot for " + chosen.id() + " at chunk " + chunkX + "," + chunkZ);
             }
-            return GenerationResult.SKIPPED;
+            return GenerationResult.SKIPPED_NO_SURFACE;
         }
         StructureFootprint preview = placer.previewFootprint(chosen, random);
         if (!occupancy.canPlace(
@@ -146,7 +146,7 @@ public final class StructureGenerator {
             if (plugin.getPluginConfig().isDebug()) {
                 plugin.getLogger().info("Skipped " + chosen.id() + " at " + anchor.getBlockX() + "," + anchor.getBlockY() + "," + anchor.getBlockZ() + " — overlaps another structure");
             }
-            return GenerationResult.SKIPPED;
+            return GenerationResult.SKIPPED_OCCUPIED;
         }
 
         StructurePiece piece = registry.pickPiece(chosen, random);
@@ -169,7 +169,7 @@ public final class StructureGenerator {
 
         PlacementResult result = placer.placeAt(anchor, chosen, rotation, mirror);
         if (!result.success()) {
-            return GenerationResult.SKIPPED;
+            return GenerationResult.SKIPPED_PLACE_FAILED;
         }
         onPlacementComplete(world, chosen, result);
         return GenerationResult.PLACED;
@@ -190,6 +190,7 @@ public final class StructureGenerator {
 
         occupancy.record(
                 world,
+                chosen.id(),
                 result.anchor().getBlockX(),
                 result.anchor().getBlockY(),
                 result.anchor().getBlockZ(),

@@ -25,6 +25,10 @@ public final class PluginConfig {
     private int structureMinDistance;
     private int maxStructuresPerChunk;
     private int placementsPerTick;
+    private int scanChunksPerTick;
+    private int maxQueuedCandidates;
+    private int defaultGenerateRadius;
+    private int maxGenerateRadius;
     private int progressIntervalTicks;
 
     public PluginConfig(VibeEndStructuresPlugin plugin) {
@@ -52,6 +56,10 @@ public final class PluginConfig {
         structureMinDistance = cfg.getInt("structure-min-distance", 22);
         maxStructuresPerChunk = cfg.getInt("max-structures-per-chunk", 1);
         placementsPerTick = cfg.getInt("generation.placements-per-tick", 1);
+        scanChunksPerTick = cfg.getInt("generation.scan-chunks-per-tick", 4096);
+        maxQueuedCandidates = cfg.getInt("generation.max-queued-candidates", 256);
+        defaultGenerateRadius = cfg.getInt("generation.default-radius", 8000);
+        maxGenerateRadius = cfg.getInt("generation.max-radius", 12000);
         progressIntervalTicks = cfg.getInt("generation.progress-interval-ticks", 100);
     }
 
@@ -118,6 +126,22 @@ public final class PluginConfig {
 
     public int getPlacementsPerTick() {
         return placementsPerTick;
+    }
+
+    public int getScanChunksPerTick() {
+        return scanChunksPerTick;
+    }
+
+    public int getMaxQueuedCandidates() {
+        return maxQueuedCandidates;
+    }
+
+    public int getDefaultGenerateRadius() {
+        return defaultGenerateRadius;
+    }
+
+    public int getMaxGenerateRadius() {
+        return maxGenerateRadius;
     }
 
     public int getProgressIntervalTicks() {
