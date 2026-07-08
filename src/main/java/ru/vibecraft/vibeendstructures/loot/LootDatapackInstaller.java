@@ -28,8 +28,10 @@ public final class LootDatapackInstaller {
         Path datapackRoot = resolvePrimaryDatapackRoot();
         try {
             Files.createDirectories(datapackRoot.resolve("data/vibeend/loot_table"));
+            Files.createDirectories(datapackRoot.resolve("data/vibedragon/loot_table"));
             writePackMeta(datapackRoot);
             copyLootTables(datapackRoot.resolve("data/vibeend/loot_table"));
+            copyDragonLootTables(datapackRoot.resolve("data/vibedragon/loot_table"));
             scheduleReload();
             plugin.getLogger().info("Installed VibeEndStructures loot datapack at " + datapackRoot);
         } catch (IOException ex) {
@@ -86,6 +88,9 @@ public final class LootDatapackInstaller {
                 "vibeend:mega_ship_barrel",
                 "vibeend:mega_ship_crate",
                 "vibeend:mega_ship_treasure",
+                "vibedragon:ender_dragon/common",
+                "vibedragon:fire_dragon/common",
+                "vibedragon:frost_dragon/common",
                 "minecraft:chests/end_city_treasure"
         };
         int missing = 0;
@@ -131,6 +136,27 @@ public final class LootDatapackInstaller {
 
         for (String fileName : knownTables) {
             try (InputStream in = plugin.getResource("loot_tables/" + fileName)) {
+                if (in == null) {
+                    continue;
+                }
+                Path out = targetDir.resolve(fileName);
+                Files.createDirectories(out.getParent());
+                try (OutputStream os = Files.newOutputStream(out)) {
+                    in.transferTo(os);
+                }
+            }
+        }
+    }
+
+    private void copyDragonLootTables(Path targetDir) throws IOException {
+        String[] dragonTables = {
+                "ender_dragon/common.json", "ender_dragon/uncommon.json", "ender_dragon/rare.json", "ender_dragon/epic.json", "ender_dragon/legendary.json",
+                "fire_dragon/common.json", "fire_dragon/uncommon.json", "fire_dragon/rare.json", "fire_dragon/epic.json", "fire_dragon/legendary.json",
+                "frost_dragon/common.json", "frost_dragon/uncommon.json", "frost_dragon/rare.json", "frost_dragon/epic.json", "frost_dragon/legendary.json"
+        };
+
+        for (String fileName : dragonTables) {
+            try (InputStream in = plugin.getResource("data/vibedragon/loot_table/" + fileName)) {
                 if (in == null) {
                     continue;
                 }

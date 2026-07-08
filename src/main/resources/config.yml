@@ -29,4 +29,8 @@ debug: false
 
 generation:
   placements-per-tick: 1
+  scan-chunks-per-tick: 4096
+  max-queued-candidates: 256
+  default-radius: 8000
+  max-radius: 12000
   progress-interval-ticks: 100

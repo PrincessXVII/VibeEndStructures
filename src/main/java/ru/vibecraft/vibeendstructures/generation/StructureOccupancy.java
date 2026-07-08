@@ -1,5 +1,6 @@
 package ru.vibecraft.vibeendstructures.generation;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -10,8 +11,10 @@ import ru.vibecraft.vibeendstructures.structure.StructureFootprint;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public final class StructureOccupancy {
@@ -59,15 +62,40 @@ public final class StructureOccupancy {
         return isAreaNatural(world, anchorX, anchorY, anchorZ, footprint);
     }
 
-    public void record(World world, int anchorX, int anchorY, int anchorZ, StructureFootprint footprint) {
+    public void record(World world, String structureId, int anchorX, int anchorY, int anchorZ, StructureFootprint footprint) {
         placed.add(new PlacedStructure(
                 world.getName(),
+                structureId,
                 anchorX,
                 anchorY,
                 anchorZ,
                 footprint.horizontalRadius()
         ));
         saveAsync();
+    }
+
+    public List<PlacedStructure> placedStructures() {
+        return List.copyOf(placed);
+    }
+
+    public List<PlacedStructure> placedInWorld(String worldName) {
+        return placed.stream()
+                .filter(structure -> structure.world().equals(worldName))
+                .sorted(Comparator.comparing(PlacedStructure::world)
+                        .thenComparing(PlacedStructure::structureId)
+                        .thenComparingInt(PlacedStructure::x)
+                        .thenComparingInt(PlacedStructure::z))
+                .toList();
+    }
+
+    public Optional<PlacedStructure> nearest(Location location) {
+        if (location.getWorld() == null) {
+            return Optional.empty();
+        }
+        String worldName = location.getWorld().getName();
+        return placed.stream()
+                .filter(structure -> structure.world().equals(worldName))
+                .min(Comparator.comparingDouble(structure -> structure.distanceSquared(location)));
     }
 
     private boolean isAreaNatural(World world, int anchorX, int anchorY, int anchorZ, StructureFootprint footprint) {
@@ -102,8 +130,10 @@ public final class StructureOccupancy {
             if (!(entry instanceof java.util.Map<?, ?> map)) {
                 continue;
             }
+            Object structureId = map.containsKey("structure") ? map.get("structure") : "unknown";
             placed.add(new PlacedStructure(
                     String.valueOf(map.get("world")),
+                    String.valueOf(structureId),
                     ((Number) map.get("x")).intValue(),
                     ((Number) map.get("y")).intValue(),
                     ((Number) map.get("z")).intValue(),
@@ -122,6 +152,7 @@ public final class StructureOccupancy {
         for (PlacedStructure structure : placed) {
             entries.add(java.util.Map.of(
                     "world", structure.world(),
+                    "structure", structure.structureId(),
                     "x", structure.x(),
                     "y", structure.y(),
                     "z", structure.z(),
@@ -139,6 +170,12 @@ public final class StructureOccupancy {
         }
     }
 
-    private record PlacedStructure(String world, int x, int y, int z, int radius) {
+    public record PlacedStructure(String world, String structureId, int x, int y, int z, int radius) {
+        public double distanceSquared(Location location) {
+            double dx = x - location.getX();
+            double dy = y - location.getY();
+            double dz = z - location.getZ();
+            return dx * dx + dy * dy + dz * dz;
+        }
     }
 }
