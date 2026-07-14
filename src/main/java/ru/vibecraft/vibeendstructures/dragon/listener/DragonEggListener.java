@@ -3,6 +3,7 @@ package ru.vibecraft.vibeendstructures.dragon.listener;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -30,11 +31,19 @@ public final class DragonEggListener implements Listener {
             return;
         }
         Player player = event.getPlayer();
-        Block against = event.getBlockAgainst();
-        DragonArena arena = nearestCenterArena(event.getBlockPlaced().getX(), event.getBlockPlaced().getZ());
-        if (arena == null || against.getType() != Material.BEDROCK || !isNearCenter(event.getBlockPlaced(), arena)) {
+        Block placed = event.getBlockPlaced();
+        World world = placed.getWorld();
+        if (world == null || world.getEnvironment() != World.Environment.THE_END || !isConfiguredDragonWorld(world)) {
             event.setCancelled(true);
-            player.sendMessage(Component.text("Яйцо дракона нужно поставить на бедрок в центре 0 0.", NamedTextColor.RED));
+            player.sendMessage(Component.text("Яйцо дракона можно активировать только в Энде на бедроке у 0 0.", NamedTextColor.RED));
+            return;
+        }
+
+        Block against = event.getBlockAgainst();
+        DragonArena arena = nearestCenterArena(placed.getX(), placed.getZ());
+        if (arena == null || against.getType() != Material.BEDROCK || !isNearCenter(placed, arena)) {
+            event.setCancelled(true);
+            player.sendMessage(Component.text("Яйцо дракона нужно поставить на бедрок в центре 0 0 Энда.", NamedTextColor.RED));
             return;
         }
 
@@ -46,6 +55,12 @@ public final class DragonEggListener implements Listener {
             return;
         }
         player.sendMessage(Component.text("Яйцо пробудило дракона. Этот дракон новое яйцо не оставит.", NamedTextColor.LIGHT_PURPLE));
+    }
+
+    private boolean isConfiguredDragonWorld(World world) {
+        return plugin.getDragonFightService().resolveDragonWorld()
+                .map(dragonWorld -> dragonWorld.equals(world))
+                .orElse(false);
     }
 
     private DragonArena nearestCenterArena(int x, int z) {
