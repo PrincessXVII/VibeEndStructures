@@ -59,22 +59,33 @@ public final class DragonFightListener implements Listener {
         boolean canDropEgg = eggEligible == null || eggEligible == (byte) 1;
         boolean scheduledSpawn = dragon.getScoreboardTags().contains("vibedragon:scheduled_spawn");
 
+        plugin.getLogger().info("Dragon death handled for arena=" + arenaId + " dragon=" + dragonId
+                + " at " + formatLoc(deathLocation) + "; starting death ritual then loot.");
+
         DragonDeathRitual.play(plugin, deathLocation, () -> {
             suppressVanillaBattle(world);
-            if (definition != null && arena != null && world != null) {
-                rewardDistributor.distribute(
-                        snapshot,
-                        definition,
-                        arena,
-                        world,
-                        plugin.getDragonConfig().getGeneralConfig().minContributionForReward(),
-                        canDropEgg,
-                        scheduledSpawn
-                );
-            } else {
-                plugin.getLogger().warning("Skipped dragon rewards for arena=" + arenaId
-                        + " dragon=" + dragonId
-                        + " (definition=" + (definition != null) + ", arena=" + (arena != null) + ", world=" + (world != null) + ")");
+            try {
+                if (definition != null && arena != null && world != null) {
+                    rewardDistributor.distribute(
+                            snapshot,
+                            definition,
+                            arena,
+                            world,
+                            deathLocation,
+                            plugin.getDragonConfig().getGeneralConfig().minContributionForReward(),
+                            canDropEgg,
+                            scheduledSpawn
+                    );
+                } else {
+                    plugin.getLogger().warning("Skipped dragon rewards for arena=" + arenaId
+                            + " dragon=" + dragonId
+                            + " (definition=" + (definition != null) + ", arena=" + (arena != null)
+                            + ", world=" + (world != null) + ")");
+                }
+            } catch (RuntimeException ex) {
+                plugin.getLogger().severe("Failed to distribute dragon rewards for arena=" + arenaId
+                        + " dragon=" + dragonId + ": " + ex.getMessage());
+                ex.printStackTrace();
             }
             announceDeath(definition, snapshot);
         });

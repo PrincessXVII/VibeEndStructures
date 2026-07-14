@@ -168,13 +168,31 @@ public final class DragonScheduleService {
         for (LocalTime spawnTime : AUTO_SPAWN_TIMES) {
             if (isWithinCurrentMinute(moscowNow, spawnTime)) {
                 String key = LocalDate.now(MOSCOW) + "-" + spawnTime;
-                if (!key.equals(lastAutoSpawnKey) && endOpen && spawnRandomScheduledDragon(true, "авто-спавн " + spawnTime + " МСК")) {
+                if (key.equals(lastAutoSpawnKey) || !endOpen) {
+                    continue;
+                }
+                if (!hasPlayersInEnd()) {
+                    lastAutoSpawnKey = key;
+                    save();
+                    plugin.getLogger().info("Авто-спавн " + spawnTime + " МСК пропущен: в Энде нет игроков");
+                    continue;
+                }
+                if (spawnRandomScheduledDragon(true, "авто-спавн " + spawnTime + " МСК")) {
                     lastAutoSpawnKey = key;
                     firstDragonSpawned = true;
                     save();
                 }
             }
         }
+    }
+
+    private boolean hasPlayersInEnd() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (isInEnd(player)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void updateScheduleBossBar(long now) {

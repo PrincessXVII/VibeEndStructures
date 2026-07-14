@@ -40,10 +40,14 @@ public final class DragonEggManager {
     }
 
     public boolean tryDropEgg(World world, DragonArena arena, double chance) {
+        return tryDropEgg(world, arena, chance, null);
+    }
+
+    public boolean tryDropEgg(World world, DragonArena arena, double chance, Location preferredAnchor) {
         if (chance <= 0 || random.nextDouble() > chance) {
             return false;
         }
-        dropEggFromSky(world, arena);
+        dropEggFromSky(world, arena, preferredAnchor);
         return true;
     }
 
@@ -51,7 +55,7 @@ public final class DragonEggManager {
         if (world == null || arena == null) {
             return;
         }
-        dropEggFromSky(world, arena);
+        dropEggFromSky(world, arena, null);
     }
 
     public boolean tryGiveEgg(Player player, double chance) {
@@ -71,7 +75,7 @@ public final class DragonEggManager {
             meta.lore(List.of(
                     Component.text("Можно снова пробудить дракона.", NamedTextColor.GRAY)
                             .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Поставь на бедрок в центре острова 0 0.", NamedTextColor.DARK_PURPLE)
+                    Component.text("Поставь в Энде на бедрок в центре острова 0 0.", NamedTextColor.DARK_PURPLE)
                             .decoration(TextDecoration.ITALIC, false),
                     Component.text("Призванный яйцом дракон новое яйцо не оставит.", NamedTextColor.DARK_GRAY)
                             .decoration(TextDecoration.ITALIC, false)
@@ -108,8 +112,8 @@ public final class DragonEggManager {
         }
     }
 
-    public void dropEggFromSky(World world, DragonArena arena) {
-        Location target = randomIslandLocation(world, arena);
+    public void dropEggFromSky(World world, DragonArena arena, Location preferredAnchor) {
+        Location target = randomIslandLocation(world, arena, preferredAnchor);
         Location start = target.clone().add(0, 56.0, 0);
         ArmorStand stand = (ArmorStand) world.spawnEntity(start, EntityType.ARMOR_STAND);
         stand.setVisible(false);
@@ -144,7 +148,10 @@ public final class DragonEggManager {
                 if (loc.getY() <= target.getY() + 1.0 || ticks >= 20 * 12) {
                     stand.remove();
                     ItemStack egg = createRenewableEgg();
-                    Item dropped = world.dropItemNaturally(target, egg);
+                    Item dropped = world.dropItem(target, egg);
+                    dropped.setVelocity(dropped.getVelocity().multiply(0.05));
+                    dropped.setGlowing(true);
+                    dropped.setPickupDelay(30);
                     ItemMeta meta = egg.getItemMeta();
                     if (meta != null && meta.displayName() != null) {
                         dropped.customName(meta.displayName());
@@ -153,30 +160,61 @@ public final class DragonEggManager {
                     dropped.addScoreboardTag("vibedragon:egg_drop");
                     DragonParticles.spawn(plugin, world, Particle.EXPLOSION_EMITTER, target, 1);
                     DragonParticles.spawn(plugin, world, Particle.END_ROD, target, 80, 1.4, 1.0, 1.4, 0.08);
+                    DragonParticles.spawn(plugin, world, Particle.PORTAL, target, 40, 1.0, 0.8, 1.0, 0.1);
                     world.playSound(target, Sound.ENTITY_ENDER_DRAGON_GROWL, SoundCategory.HOSTILE, 2.0f, 1.35f);
+                    org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        if (dropped.isValid()) {
+                            dropped.setGlowing(false);
+                        }
+                    }, 20L * 6);
                     taskRef[0].cancel();
                 }
             }
         }, 0L, 2L);
     }
 
-    private Location randomIslandLocation(World world, DragonArena arena) {
-        for (int attempt = 0; attempt < 48; attempt++) {
+    private Location randomIslandLocation(World world, DragonArena arena, Location preferredAnchor) {
+        Location base = preferredAnchor;
+        if (base == null || base.getWorld() == null) {
+            Location ground = highestSolid(world, arena.centerX(), arena.centerZ());
+            base = ground != null
+                    ? ground.add(0.5, 1.1, 0.5)
+                    : new Location(world, arena.centerX() + 0.5, arena.height(), arena.centerZ() + 0.5);
+        }
+        double maxDistance = Math.max(24.0, Math.min(arena.radius() - 10.0, 80.0));
+        for (int attempt = 0; attempt < 80; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2.0;
-            double distance = 12.0 + random.nextDouble() * Math.max(16.0, arena.radius() - 18.0);
-            int x = arena.centerX() + (int) Math.round(Math.cos(angle) * distance);
-            int z = arena.centerZ() + (int) Math.round(Math.sin(angle) * distance);
-            Location ground = highestSolid(world, x, z);
-            if (ground != null && ground.getBlock().getType() != Material.BEDROCK) {
-                return ground.add(0.5, 1.1, 0.5);
+            double distance = 6.0 + random.nextDouble() * Math.max(10.0, maxDistance - 6.0);
+            int x = (int) Math.round(base.getX() + Math.cos(angle) * distance);
+            int z = (int) Math.round(base.getZ() + Math.sin(angle) * distance);
+            Location drop = safeDropLocation(world, x, z, base.getY());
+            if (drop != null) {
+                return drop;
             }
         }
-        return new Location(world, arena.centerX() + 0.5, arena.height(), arena.centerZ() + 0.5);
+        Location center = safeDropLocation(world, arena.centerX(), arena.centerZ(), base.getY());
+        return center != null ? center : base.clone();
+    }
+
+    private Location safeDropLocation(World world, int x, int z, double referenceY) {
+        Location ground = highestSolid(world, x, z);
+        if (ground == null) {
+            return null;
+        }
+        Material under = ground.getBlock().getType();
+        if (!under.isSolid() || under == Material.BARRIER || under == Material.BEDROCK) {
+            return null;
+        }
+        if (Math.abs(ground.getY() - referenceY) > 28.0) {
+            return null;
+        }
+        return ground.add(0.5, 1.1, 0.5);
     }
 
     private Location highestSolid(World world, int x, int z) {
-        int max = Math.min(world.getMaxHeight() - 1, 160);
-        for (int y = max; y >= world.getMinHeight(); y--) {
+        int max = Math.min(world.getMaxHeight() - 1, 180);
+        int min = Math.max(world.getMinHeight(), 0);
+        for (int y = max; y >= min; y--) {
             Material type = world.getBlockAt(x, y, z).getType();
             if (type.isSolid() && type != Material.BARRIER) {
                 return new Location(world, x, y, z);
